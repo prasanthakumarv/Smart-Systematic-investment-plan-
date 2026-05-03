@@ -1,0 +1,585 @@
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#e8e8e8;display:flex;justify-content:center;padding:16px 0 40px}
+.phone{width:375px;background:#f5f5f5;border-radius:38px;overflow:hidden;border:9px solid #111;box-shadow:0 28px 70px rgba(0,0,0,0.3);display:flex;flex-direction:column}
+.sbar{background:#fff;padding:10px 20px 4px;display:flex;justify-content:space-between;font-size:13px;font-weight:600;color:#111;flex-shrink:0}
+.scr{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;max-height:740px}
+.scr::-webkit-scrollbar{display:none}
+.bnav{background:#fff;border-top:1px solid #eee;padding:8px 0 14px;display:flex;flex-shrink:0}
+.ni{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
+.nl{font-size:10px;font-weight:600;color:#aaa}
+.ni.on .nl{color:#5B2EDE}
+.card{background:#fff;border-radius:14px;margin:10px 12px 0;padding:16px}
+.clbl{font-size:11px;color:#888;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+.slider{width:100%;accent-color:#5B2EDE;cursor:pointer;margin:8px 0 2px}
+.rlbls{display:flex;justify-content:space-between;font-size:10px;color:#bbb}
+.seg-wrap{display:flex;background:#EEEAF8;border-radius:20px;overflow:hidden}
+.seg{flex:1;padding:9px 0;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border-radius:20px;transition:background .15s,color .15s}
+.seg.on{background:#5B2EDE;color:#fff}
+.seg.off{color:#888;background:transparent}
+.purple-card{background:#5B2EDE;border-radius:14px;margin:10px 12px 0;padding:18px}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin:8px 12px 0}
+.mc{background:#fff;border-radius:12px;padding:12px}
+.mc-lbl{font-size:11px;color:#888;margin-bottom:3px}
+.mc-val{font-size:15px;font-weight:800;color:#111}
+.tag{font-size:10px;font-weight:700;padding:3px 7px;border-radius:5px}
+.tag-red{background:#FDEAEA;color:#C0392B}
+.tag-grn{background:#EAF3DE;color:#27500A}
+.tag-pur{background:#EEEDFE;color:#3C3489}
+.tag-amb{background:#FAEEDA;color:#854F0B}
+.inp24{font-size:22px;font-weight:800;color:#111;border:none;outline:none;background:transparent;width:100%;min-width:0}
+.modal-bg{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;justify-content:center;z-index:100}
+.modal-box{background:#fff;border-radius:20px 20px 0 0;padding:20px;width:375px;max-height:80vh;overflow-y:auto}
+.chip{padding:7px 14px;border-radius:16px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #ddd;color:#555;white-space:nowrap;transition:all .15s}
+.chip.on{background:#5B2EDE;color:#fff;border-color:#5B2EDE}
+.notif-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid #f3f3f3;align-items:flex-start}
+.notif-dot{width:8px;height:8px;border-radius:50%;background:#5B2EDE;flex-shrink:0;margin-top:4px}
+</style>
+
+<div class="phone">
+  <div class="sbar"><span id="clockTime">12:02</span><span style="font-size:11px">●●● ▲ 🔋</span></div>
+  <div class="scr" id="mainScr"></div>
+  <nav class="bnav" id="bnav"></nav>
+</div>
+<div id="modalLayer"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+// ── STATE ─────────────────────────────────────────────────────────────────────
+const APP = {
+  tab:'home', metal:'gold',
+  liveGold: 9156, liveSilver: 1043,
+  goldChange: +0.43, silverChange: -1.21,
+  sipAmt:500, sipYears:3, sipM:10, sipDip:0, sipType:'smart',
+  txnTab:'savings', txnFilter:'ALL',
+  portfolioFocus: null,
+  buyStep: 0
+};
+let charts={}, modalOpen=false;
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function fmt(n,dec=0){
+  if(Math.abs(n)>=10000000) return '₹'+(n/10000000).toFixed(2)+'Cr';
+  if(Math.abs(n)>=100000) return '₹'+(n/100000).toFixed(2)+'L';
+  if(Math.abs(n)>=1000) return '₹'+n.toLocaleString('en-IN',{maximumFractionDigits:dec});
+  return '₹'+n.toFixed(dec);
+}
+function sipFV(m,r,n){const mr=r/12;return m*(((Math.pow(1+mr,n)-1)/mr)*(1+mr))}
+function smartSipCalc(base,years,M){
+  const n=years*12, GOLD=0.11, CAP=2.5;
+  let tInv=0,tUnits=0,sInv=0,sUnits=0;
+  const sH=[],stdH=[],invH=[],lbs=[];
+  const step=Math.max(1,Math.floor(n/10));
+  for(let i=1;i<=n;i++){
+    const pRef=7000*Math.pow(1+GOLD/12,i);
+    const noise=Math.sin(i*0.7)*0.06*pRef+Math.sin(i*1.9)*0.03*pRef;
+    const pCurr=pRef+noise;
+    const D=Math.max(0,(pRef-pCurr)/pRef);
+    const iFinal=Math.min(base+base*D*M,base*CAP);
+    tInv+=iFinal; tUnits+=iFinal/pCurr;
+    sInv+=base; sUnits+=base/pCurr;
+    if(i%step===0||i===n){
+      sH.push(Math.round(tUnits*pCurr));
+      stdH.push(Math.round(sUnits*pCurr));
+      invH.push(Math.round(tInv));
+      lbs.push(i<=12?i+'m':Math.round(i/12)+'y');
+    }
+  }
+  const fP=7000*Math.pow(1+GOLD/12,n);
+  const sFV=tUnits*fP, stdFV=sUnits*fP;
+  return {smartFV:Math.round(sFV),stdFV:Math.round(stdFV),tInv:Math.round(tInv),sInv:Math.round(sInv),
+    smartRet:((sFV/tInv-1)*100),stdRet:((stdFV/sInv-1)*100),
+    adv:Math.round(sFV-stdFV),sH,stdH,invH,lbs,units:tUnits.toFixed(4)};
+}
+
+// ── CLOCK ─────────────────────────────────────────────────────────────────────
+function tick(){
+  const now=new Date();
+  const h=now.getHours()%12||12,m=String(now.getMinutes()).padStart(2,'0');
+  const el=document.getElementById('clockTime');
+  if(el)el.textContent=h+':'+m+' '+(now.getHours()>=12?'PM':'AM');
+}
+setInterval(tick,10000); tick();
+
+// Simulate live price ticks
+setInterval(()=>{
+  APP.liveGold+=Math.round((Math.random()-0.49)*18);
+  APP.liveSilver+=Math.round((Math.random()-0.49)*4);
+  APP.goldChange=+((APP.liveGold/9100-1)*100).toFixed(2);
+  APP.silverChange=+((APP.liveSilver/1055-1)*100).toFixed(2);
+  if(APP.tab==='home'){const el=document.getElementById('goldPriceLive');if(el){el.textContent=fmt(APP.liveGold,0)+'/gm';document.getElementById('goldChangeLive').textContent=(APP.goldChange>=0?'+':'')+APP.goldChange+'%';document.getElementById('goldChangeLive').style.color=APP.goldChange>=0?'#1D9E75':'#E74C3C';}}
+},3000);
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+const NAV=[
+  {id:'home',label:'Home',svg:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`},
+  {id:'portfolio',label:'Portfolio',svg:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>`},
+  {id:'smartsip',label:'SmartSIP',special:true,svg:`<svg viewBox="0 0 28 28" fill="none"><circle cx="14" cy="14" r="14" fill="#5B2EDE"/><polyline points="7,19 11,13 14,16 18,10 21,13" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`},
+  {id:'transactions',label:'Txns',svg:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="21" y2="14"/><line x1="3" y1="18" x2="17" y2="18"/></svg>`},
+  {id:'profile',label:'Profile',svg:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`}
+];
+
+function renderNav(){
+  document.getElementById('bnav').innerHTML=NAV.map(n=>{
+    const on=APP.tab===n.id;
+    const col=on?'#5B2EDE':'#aaa';
+    return `<div class="ni ${on?'on':''}" onclick="setTab('${n.id}')">
+      <div style="color:${col};width:${n.special?'28':'22'}px;height:${n.special?'28':'22'}px">${n.svg}</div>
+      <span class="nl" style="${on?'color:#5B2EDE':''}">${n.label}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── HOME ─────────────────────────────────────────────────────────────────────
+function homeHTML(){
+  const isGold=APP.metal==='gold';
+  const price=isGold?APP.liveGold:APP.liveSilver;
+  const change=isGold?APP.goldChange:APP.silverChange;
+  const color=change>=0?'#1D9E75':'#E74C3C';
+  return `
+  <div style="background:#fff;position:relative">
+    <div style="position:absolute;top:0;left:0;background:#F5A623;color:#fff;font-size:9px;font-weight:800;padding:5px 14px;border-radius:0 0 10px 0;letter-spacing:.5px;z-index:2">LOWEST PRICE</div>
+    <div style="display:flex;justify-content:flex-end;padding:12px 20px 8px;gap:10px;align-items:center">
+      <span style="font-size:13px;font-weight:700;color:${isGold?'#111':'#aaa'};cursor:pointer" onclick="toggleMetal()">Gold</span>
+      <div onclick="toggleMetal()" style="width:44px;height:24px;background:#5B2EDE;border-radius:12px;position:relative;cursor:pointer;transition:all .2s">
+        <div style="width:20px;height:20px;background:${isGold?'#F5A623':'#C0C0C0'};border-radius:50%;position:absolute;top:2px;${isGold?'left:2px':'left:22px'};transition:left .2s"></div>
+      </div>
+      <span style="font-size:13px;font-weight:700;color:${!isGold?'#111':'#aaa'};cursor:pointer" onclick="toggleMetal()">Silver</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;padding:8px 20px 20px">
+      <div style="width:88px;height:108px;position:relative;margin-bottom:14px">
+        <div style="width:68px;height:88px;border:2px solid rgba(160,160,210,0.4);border-radius:4px 4px 14px 14px;position:absolute;bottom:0;left:10px;overflow:hidden">
+          <div style="position:absolute;bottom:0;left:0;right:0;height:68%;background:${isGold?'#C8956A':'#A8A8A8'};border-radius:0 0 12px 12px"></div>
+          <div style="position:absolute;top:4px;left:7px;width:10px;height:54%;background:rgba(255,255,255,0.25);border-radius:5px"></div>
+        </div>
+        <div style="position:absolute;top:0;left:26px;font-size:15px;transform:rotate(-15deg)">🍂</div>
+      </div>
+      <div style="font-size:20px;font-weight:800;text-align:center;color:#111;margin-bottom:6px;line-height:1.3">Buy ${isGold?'gold':'silver'} daily, at the<br>price of chai</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;background:#f7f7f7;border-radius:12px;padding:10px 16px;width:100%">
+        <div>
+          <div style="font-size:11px;color:#888;font-weight:600">${isGold?'24K GOLD':'SILVER'} PRICE</div>
+          <div id="goldPriceLive" style="font-size:20px;font-weight:800;color:#111">${fmt(price,0)}/gm</div>
+        </div>
+        <div style="margin-left:auto;text-align:right">
+          <div id="goldChangeLive" style="font-size:14px;font-weight:800;color:${color}">${change>=0?'+':''}${change}%</div>
+          <div style="font-size:10px;color:#aaa">Today</div>
+        </div>
+        <div style="width:8px;height:8px;border-radius:50%;background:${color};animation:pulse 2s infinite"></div>
+      </div>
+      <button onclick="openBuyModal()" style="width:100%;background:#5B2EDE;color:#fff;border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:800;cursor:pointer">Buy now</button>
+    </div>
+  </div>
+  <div style="background:#EEF0FF;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:0">
+    <span style="font-size:12px;color:#555;font-weight:500">24k Pure gold | 100% Safe & Secured</span>
+  </div>
+  <div style="padding:10px 12px 0">
+    <div style="font-size:14px;font-weight:800;color:#111;margin-bottom:8px">Automatic Savings</div>
+    <div style="background:#5B2EDE;border-radius:14px;padding:18px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="setTab('smartsip')">
+      <div>
+        <div style="color:#fff;font-size:17px;font-weight:800;line-height:1.3">Save gold on<br>autopilot</div>
+        <div style="color:#F5C542;font-size:22px;font-weight:900;margin-top:6px">₹20,805</div>
+      </div>
+      <span style="font-size:44px">🐷</span>
+    </div>
+  </div>
+  <div style="padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0">
+    <div style="background:#fff;border-radius:12px;padding:12px">
+      <div style="font-size:11px;color:#888;margin-bottom:4px">Gold holdings</div>
+      <div style="font-size:16px;font-weight:800;color:#F5A623">0.0006 gm</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">≈ ₹9.71</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:12px">
+      <div style="font-size:11px;color:#888;margin-bottom:4px">Silver holdings</div>
+      <div style="font-size:16px;font-weight:800;color:#888">0.0345 gm</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">≈ ₹9.19</div>
+    </div>
+  </div>
+  <div style="height:16px"></div>
+  <style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}</style>`;
+}
+
+function toggleMetal(){APP.metal=APP.metal==='gold'?'silver':'gold';render();}
+
+function openBuyModal(){
+  document.getElementById('modalLayer').innerHTML=`
+  <div class="modal-bg" onclick="closeModal(event)">
+    <div class="modal-box">
+      <div style="width:36px;height:4px;background:#ddd;border-radius:2px;margin:0 auto 16px"></div>
+      <div style="font-size:16px;font-weight:800;color:#111;margin-bottom:6px">How do you want to invest?</div>
+      <div style="font-size:12px;color:#888;margin-bottom:16px">Choose your investment style</div>
+      <div onclick="closeModalAndGo('lumpsum')" style="border:1.5px solid #eee;border-radius:12px;padding:14px;margin-bottom:10px;cursor:pointer">
+        <div style="font-size:14px;font-weight:800;color:#111">💰 Lump Sum</div>
+        <div style="font-size:12px;color:#888;margin-top:4px">One-time purchase at today's price (${fmt(APP.metal==='gold'?APP.liveGold:APP.liveSilver,0)}/gm)</div>
+      </div>
+      <div onclick="closeModalAndGo('smartsip')" style="border:2px solid #5B2EDE;border-radius:12px;padding:14px;cursor:pointer;background:#FAFAFE">
+        <div style="display:flex;align-items:center;gap:8px"><div style="font-size:14px;font-weight:800;color:#5B2EDE">⚡ SmartSIP</div><span class="tag tag-pur">Recommended</span></div>
+        <div style="font-size:12px;color:#888;margin-top:4px">Buy more when price dips — maximize returns automatically</div>
+      </div>
+      <button onclick="closeModal(null)" style="width:100%;margin-top:14px;padding:13px;border:none;background:#f5f5f5;border-radius:10px;font-size:13px;font-weight:700;color:#555;cursor:pointer">Cancel</button>
+    </div>
+  </div>`;
+}
+function closeModal(e){if(!e||e.target.classList.contains('modal-bg')){document.getElementById('modalLayer').innerHTML='';}}
+function closeModalAndGo(type){document.getElementById('modalLayer').innerHTML='';if(type==='smartsip'){APP.sipType='smart';setTab('smartsip');}else{showLumpsum();}}
+function showLumpsum(){
+  document.getElementById('modalLayer').innerHTML=`
+  <div class="modal-bg" onclick="closeModal(event)">
+    <div class="modal-box">
+      <div style="width:36px;height:4px;background:#ddd;border-radius:2px;margin:0 auto 16px"></div>
+      <div style="font-size:16px;font-weight:800;color:#111;margin-bottom:14px">Buy ${APP.metal==='gold'?'Gold':'Silver'} — Lump Sum</div>
+      <div style="font-size:12px;color:#888;margin-bottom:4px">Live price: <b style="color:#111">${fmt(APP.metal==='gold'?APP.liveGold:APP.liveSilver,0)}/gm</b></div>
+      <div style="background:#f7f7f7;border-radius:10px;padding:12px;margin:12px 0">
+        <div style="font-size:11px;color:#888;margin-bottom:4px">Amount (₹)</div>
+        <input id="lsAmt" type="number" value="500" min="10" style="font-size:22px;font-weight:800;color:#111;border:none;outline:none;background:transparent;width:100%" inputmode="numeric">
+      </div>
+      <div id="lsGrams" style="font-size:12px;color:#5B2EDE;font-weight:600;margin-bottom:14px">≈ 0.0546 gm of ${APP.metal}</div>
+      <button onclick="alert('Order placed! ✅')" style="width:100%;background:#5B2EDE;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:800;cursor:pointer">Confirm Purchase</button>
+    </div>
+  </div>`;
+  document.getElementById('lsAmt').addEventListener('input',function(){
+    const gm=(this.value/(APP.metal==='gold'?APP.liveGold:APP.liveSilver));
+    document.getElementById('lsGrams').textContent='≈ '+gm.toFixed(4)+' gm of '+APP.metal;
+  });
+}
+
+// ── SMART SIP ─────────────────────────────────────────────────────────────────
+function smartSipHTML(){
+  const res=smartSipCalc(APP.sipAmt,APP.sipYears,APP.sipM);
+  const stdSipFV=Math.round(sipFV(APP.sipAmt,0.11,APP.sipYears*12));
+  const fdFV=Math.round(sipFV(APP.sipAmt,0.07,APP.sipYears*12));
+  const D=Math.max(0,APP.sipDip/100);
+  const extra=APP.sipAmt*D*APP.sipM;
+  const iFinal=Math.min(APP.sipAmt+extra,APP.sipAmt*2.5);
+  const sigColor=APP.sipDip<=0?'#888':APP.sipDip<3?'#BA7517':APP.sipDip<8?'#1D9E75':'#5B2EDE';
+  const sigLabel=APP.sipDip<=0?'Base invest — price at/above ref':APP.sipDip<3?'Mild dip — small top-up':APP.sipDip<8?'Good dip — buy more!':'Strong dip — max deploy!';
+  return `
+  <div style="background:#fff;padding:16px 20px 12px">
+    <div style="font-size:19px;font-weight:800;color:#111">SmartSIP Calculator</div>
+    <div style="font-size:12px;color:#888;margin-top:2px">Dynamic gold investment engine</div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Monthly base investment</div>
+    <div style="display:flex;align-items:center"><span style="font-size:18px;font-weight:700;color:#111;margin-right:3px">₹</span>
+    <input class="inp24" id="sipAmtI" type="number" value="${APP.sipAmt}" min="100" max="100000" inputmode="numeric" oninput="APP.sipAmt=Math.max(100,+this.value||500);document.getElementById('sipAmtSl').value=APP.sipAmt;renderSipChart()"></div>
+    <input class="slider" id="sipAmtSl" type="range" min="100" max="50000" step="100" value="${APP.sipAmt}" oninput="APP.sipAmt=+this.value;document.getElementById('sipAmtI').value=APP.sipAmt;renderSipChart()">
+    <div class="rlbls"><span>₹100</span><span>₹50,000</span></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <div class="clbl" style="margin-bottom:8px">Duration</div>
+    <div class="seg-wrap">${[1,3,5,10,20].map(y=>`<div class="seg ${APP.sipYears===y?'on':'off'}" onclick="APP.sipYears=${y};render()">${y}Y</div>`).join('')}</div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div class="clbl" style="margin:0">Aggression (M = ${APP.sipM})</div>
+      <span class="tag ${APP.sipM<=5?'tag-grn':APP.sipM<=15?'tag-pur':'tag-red'}">${APP.sipM<=5?'Conservative':APP.sipM<=15?'Balanced':'Aggressive'}</span>
+    </div>
+    <input class="slider" type="range" min="1" max="25" step="1" value="${APP.sipM}" oninput="APP.sipM=+this.value;render()">
+    <div class="rlbls"><span>Safe (1)</span><span>Max (25)</span></div>
+    <div style="font-size:11px;color:#aaa;margin-top:4px">Each 1% dip → invest ${APP.sipM}% extra on base</div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div class="clbl" style="margin:0">Simulate today's dip</div>
+      <span style="font-size:13px;font-weight:800;color:${sigColor}">${APP.sipDip.toFixed(1)}% dip</span>
+    </div>
+    <div style="height:8px;background:#eee;border-radius:4px;overflow:hidden;margin-bottom:6px">
+      <div style="width:${Math.min(APP.sipDip/15*100,100)}%;height:100%;background:${sigColor};border-radius:4px;transition:width .3s"></div>
+    </div>
+    <input class="slider" type="range" min="-5" max="15" step="0.5" value="${APP.sipDip}" oninput="APP.sipDip=+this.value;render()">
+    <div style="background:${sigColor}18;border-radius:10px;padding:10px 12px;margin-top:8px;display:flex;align-items:center;gap:10px">
+      <div style="width:34px;height:34px;border-radius:50%;background:${sigColor}22;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${sigColor}" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:${sigColor}">${sigLabel}</div>
+        <div style="font-size:11px;color:#888;margin-top:1px">Deploy: <b style="color:#111">${fmt(iFinal,0)}</b> this cycle${iFinal>APP.sipAmt?' (2.5× cap applied)':''}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="purple-card">
+    <div style="font-size:12px;color:rgba(255,255,255,.65);margin-bottom:3px">SmartSIP estimated value</div>
+    <div style="font-size:26px;font-weight:800;color:#fff">${fmt(res.smartFV)}</div>
+    <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:3px">in ${APP.sipYears}yr · ${res.smartRet.toFixed(1)}% total return · ${res.units} gm</div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <div class="clbl" style="margin-bottom:10px">SmartSIP vs Normal SIP comparison</div>
+    <div style="overflow:hidden;border-radius:10px;border:1px solid #f0f0f0">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:#f8f8f8;padding:8px 10px">
+        <span style="font-size:10px;color:#aaa;font-weight:700">METRIC</span>
+        <span style="font-size:10px;color:#5B2EDE;font-weight:700;text-align:center">SMART SIP</span>
+        <span style="font-size:10px;color:#888;font-weight:700;text-align:center">NORMAL SIP</span>
+      </div>
+      ${[
+        ['Final value',fmt(res.smartFV),fmt(res.stdFV)],
+        ['Invested',fmt(res.tInv),fmt(res.sInv)],
+        ['Returns',res.smartRet.toFixed(1)+'%',res.stdRet.toFixed(1)+'%'],
+        ['vs FD (7%)','+'+fmt(res.smartFV-fdFV)+' more','—'],
+        ['Advantage','+'+fmt(res.adv)+' more','baseline']
+      ].map(([l,s,n],i)=>`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:8px 10px;border-top:1px solid #f0f0f0;background:${i%2===0?'#fff':'#fafafa'}">
+        <span style="font-size:11px;color:#888">${l}</span>
+        <span style="font-size:11px;font-weight:800;color:#5B2EDE;text-align:center">${s}</span>
+        <span style="font-size:11px;font-weight:700;color:#888;text-align:center">${n}</span>
+      </div>`).join('')}
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <div class="clbl">Growth chart</div>
+    <div style="display:flex;gap:10px;margin:4px 0 8px;flex-wrap:wrap">
+      <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#888"><span style="width:8px;height:8px;border-radius:2px;background:#5B2EDE;display:inline-block"></span>SmartSIP</span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#888"><span style="width:8px;height:8px;border-radius:2px;background:#bbb;display:inline-block"></span>Normal SIP</span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#888"><span style="width:8px;height:8px;border-radius:2px;background:#F5A623;display:inline-block"></span>Invested</span>
+    </div>
+    <div style="position:relative;height:150px"><canvas id="sipChart" role="img" aria-label="SmartSIP vs Normal SIP growth">SmartSIP chart</canvas></div>
+    <div style="display:flex;justify-content:space-between;font-size:9px;color:#bbb;margin-top:4px" id="sipXlbls"></div>
+  </div>
+  <div style="margin:8px 12px;background:#EEEDFE;border-radius:10px;padding:9px 13px;font-size:11px;color:#534AB7;font-weight:600">Demo — 11% avg gold return p.a. with mean-reversion model</div>
+  <div style="height:20px"></div>`;
+}
+
+function renderSipChart(){
+  const res=smartSipCalc(APP.sipAmt,APP.sipYears,APP.sipM);
+  const el=document.getElementById('sipChart');
+  if(!el)return;
+  const xl=document.getElementById('sipXlbls');
+  if(xl)xl.innerHTML=res.lbs.map(l=>`<span>${l}</span>`).join('');
+  if(charts.sip)charts.sip.destroy();
+  charts.sip=new Chart(el,{type:'line',data:{labels:res.lbs,datasets:[
+    {data:res.sH,borderColor:'#5B2EDE',backgroundColor:'rgba(91,46,222,0.08)',fill:true,borderWidth:2,pointRadius:0,tension:0.4},
+    {data:res.stdH,borderColor:'#bbb',fill:false,borderWidth:1.5,pointRadius:0,tension:0.4,borderDash:[4,3]},
+    {data:res.invH,borderColor:'#F5A623',fill:false,borderWidth:1.5,pointRadius:0,tension:0}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>['Smart:','Normal:','Invested:'][c.datasetIndex]+' '+fmt(c.raw)}}},scales:{x:{display:false},y:{display:false,beginAtZero:true}},animation:{duration:300}}});
+}
+
+// ── PORTFOLIO ─────────────────────────────────────────────────────────────────
+function portfolioHTML(){
+  const goldVal=9.71, silverVal=9.19, goldInv=10, silverInv=10.62;
+  const totalVal=goldVal+silverVal, totalInv=goldInv+silverInv;
+  const totalPL=totalVal-totalInv;
+  const focus=APP.portfolioFocus;
+  return `
+  <div style="background:#fff;padding:16px 20px 12px"><div style="font-size:19px;font-weight:800;color:#111">Portfolio</div></div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:13px;color:#888;font-weight:500">Total Portfolio Value</span>
+      <span class="tag tag-red">−4.17%</span>
+    </div>
+    <div style="font-size:24px;font-weight:800;color:#111">₹${totalVal.toFixed(2)}</div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <div class="clbl" style="margin-bottom:10px">Holdings breakdown</div>
+    <div style="position:relative;height:180px;display:flex;align-items:center;justify-content:center">
+      <canvas id="pieChart" role="img" aria-label="Gold and Silver portfolio pie chart">Portfolio: Gold ₹9.71, Silver ₹9.19</canvas>
+      <div style="position:absolute;text-align:center;pointer-events:none">
+        <div style="font-size:11px;color:#888">${focus?focus:'Total'}</div>
+        <div style="font-size:16px;font-weight:800;color:#111">${focus==='Gold'?'₹9.71':focus==='Silver'?'₹9.19':'₹'+totalVal.toFixed(2)}</div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:center;gap:20px;margin-top:6px">
+      <span style="display:flex;align-items:center;gap:5px;font-size:12px;color:#888;cursor:pointer" onclick="APP.portfolioFocus='Gold';render()"><span style="width:10px;height:10px;border-radius:2px;background:#F5A623;display:inline-block"></span>Gold 51.3%</span>
+      <span style="display:flex;align-items:center;gap:5px;font-size:12px;color:#888;cursor:pointer" onclick="APP.portfolioFocus='Silver';render()"><span style="width:10px;height:10px;border-radius:2px;background:#A0A0A0;display:inline-block"></span>Silver 48.7%</span>
+    </div>
+  </div>
+
+  ${focus?`
+  <div class="card" style="margin-top:8px;border:2px solid ${focus==='Gold'?'#F5A623':'#A0A0A0'}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span style="font-size:15px;font-weight:800;color:#111">${focus==='Gold'?'🏅':'🥈'} ${focus} Vault</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="tag ${focus==='Gold'?'tag-pur':'tag-red'}">${focus==='Gold'?'0.00%':'−8.34%'}</span>
+        <span onclick="APP.portfolioFocus=null;render()" style="font-size:18px;color:#aaa;cursor:pointer">×</span>
+      </div>
+    </div>
+    <div style="height:2px;background:${focus==='Gold'?'#F5A623':'#A0A0A0'};border-radius:2px;margin-bottom:12px"></div>
+    ${[
+      ['Current Holdings',focus==='Gold'?'0.0006 gm':'0.0345 gm'],
+      ['Current Value',focus==='Gold'?'₹9.71':'₹9.19'],
+      ['Amount Invested',focus==='Gold'?'₹10.00':'₹10.62'],
+      ['P&L',focus==='Gold'?'₹0.00 (0.00%)':'−₹0.81 (−7.63%)'],
+      ['Active Savings',focus==='Gold'?'₹9.71':'₹9.71']
+    ].map(([l,v])=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f5f5f5">
+      <span style="font-size:12px;color:#888">${l}</span>
+      <span style="font-size:12px;font-weight:700;color:${l==='P&L'&&focus==='Silver'?'#E74C3C':'#111'}">${v}</span>
+    </div>`).join('')}
+  </div>`:
+  `<div class="row2">
+    <div class="mc" style="cursor:pointer;border:1.5px solid #F5A623" onclick="APP.portfolioFocus='Gold';render()">
+      <div class="mc-lbl">🏅 Gold</div>
+      <div class="mc-val" style="color:#F5A623">₹9.71</div>
+      <div style="font-size:10px;color:#888;margin-top:2px">0.0006 gm</div>
+    </div>
+    <div class="mc" style="cursor:pointer;border:1.5px solid #A0A0A0" onclick="APP.portfolioFocus='Silver';render()">
+      <div class="mc-lbl">🥈 Silver</div>
+      <div class="mc-val" style="color:#888">₹9.19</div>
+      <div style="font-size:10px;color:#888;margin-top:2px">0.0345 gm</div>
+    </div>
+  </div>`}
+
+  <div style="background:#fff;border-radius:14px;margin:10px 12px 0;padding:16px">
+    <div class="clbl" style="margin-bottom:12px">Overall Summary</div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f5f5f5">
+      <span style="font-size:13px;color:#888">Total Invested</span>
+      <span style="font-size:13px;font-weight:800;color:#111">₹${totalInv.toFixed(2)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f5f5f5">
+      <span style="font-size:13px;color:#888">Current Value</span>
+      <span style="font-size:13px;font-weight:800;color:#111">₹${totalVal.toFixed(2)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f5f5f5">
+      <span style="font-size:13px;color:#888">Total P&L</span>
+      <span style="font-size:13px;font-weight:800;color:${totalPL>=0?'#1D9E75':'#E74C3C'}">${totalPL>=0?'+':''}₹${totalPL.toFixed(2)} (${((totalPL/totalInv)*100).toFixed(2)}%)</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0">
+      <span style="font-size:13px;color:#888">Active Savings</span>
+      <span style="font-size:13px;font-weight:800;color:#5B2EDE">₹19.42</span>
+    </div>
+    <div style="margin-top:12px;background:${totalPL>=0?'#EAF3DE':'#FDEAEA'};border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:12px;color:${totalPL>=0?'#27500A':'#C0392B'};font-weight:600">Portfolio ${totalPL>=0?'Profit':'Loss'}</span>
+      <span style="font-size:14px;font-weight:800;color:${totalPL>=0?'#1D9E75':'#E74C3C'}">${totalPL>=0?'+':''}₹${totalPL.toFixed(2)}</span>
+    </div>
+  </div>
+  <div style="height:20px"></div>`;
+}
+
+function renderPieChart(){
+  const el=document.getElementById('pieChart');
+  if(!el)return;
+  if(charts.pie)charts.pie.destroy();
+  charts.pie=new Chart(el,{type:'doughnut',data:{labels:['Gold','Silver'],datasets:[{data:[9.71,9.19],backgroundColor:['#F5A623','#A0A0A0'],borderWidth:0,hoverBackgroundColor:['#E5940D','#888888']}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': ₹'+c.raw}}},
+  onClick:(e,els)=>{if(els.length>0){APP.portfolioFocus=els[0].index===0?'Gold':'Silver';render();}}}});
+}
+
+// ── TRANSACTIONS ──────────────────────────────────────────────────────────────
+const ALL_TXN=[
+  {tab:'savings',type:'buy',icon:'🏛️',name:'Buy · Gold',date:'21 Apr 2026',amt:'₹16,042.46',gm:'1.0000 gm',red:true,smart:true},
+  {tab:'savings',type:'autosavings',icon:'🔄',name:'Auto Save · Gold',date:'01 Apr 2026',amt:'₹500',gm:'0.0546 gm',red:false,smart:true},
+  {tab:'savings',type:'buy',icon:'🏛️',name:'Buy · Silver',date:'03 Feb 2026',amt:'₹10',gm:'0.0345 gm',red:false,smart:false},
+  {tab:'savings',type:'buy',icon:'🏛️',name:'Buy · Gold',date:'03 Feb 2026',amt:'₹10',gm:'0.0006 gm',red:false,smart:false},
+  {tab:'savings',type:'sell',icon:'💸',name:'Sell · Gold',date:'15 Jan 2026',amt:'₹200',gm:'0.0220 gm',red:true,smart:false},
+  {tab:'coinbar',type:'buy',icon:'🪙',name:'Gold Coin 2g',date:'10 Mar 2026',amt:'₹18,000',gm:'2.000 gm',red:true,smart:false},
+  {tab:'coinbar',type:'buy',icon:'📦',name:'Gold Bar 5g',date:'05 Jan 2026',amt:'₹45,000',gm:'5.000 gm',red:true,smart:false},
+];
+
+function txnHTML(){
+  const t=APP.txnTab, f=APP.txnFilter;
+  let list=ALL_TXN.filter(x=>x.tab===t);
+  if(f==='Buy')list=list.filter(x=>x.type==='buy');
+  else if(f==='Sell')list=list.filter(x=>x.type==='sell');
+  else if(f==='Auto Savings')list=list.filter(x=>x.type==='autosavings');
+  return `
+  <div style="background:#fff;display:flex;justify-content:space-between;align-items:center;padding:16px 20px">
+    <div style="font-size:19px;font-weight:800;color:#111">Transactions</div>
+    <div style="display:flex;align-items:center;gap:6px;border:1.5px solid #5B2EDE;border-radius:18px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">All <span style="width:18px;height:18px;background:#5B2EDE;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px">≡</span></div>
+  </div>
+  <div style="display:flex;margin:0 12px;background:#EEEAF8;border-radius:20px;overflow:hidden">
+    ${['savings','coinbar'].map(tb=>`<div onclick="APP.txnTab='${tb}';APP.txnFilter='ALL';render()" style="flex:1;padding:10px 0;text-align:center;font-size:13px;font-weight:700;border-radius:20px;cursor:pointer;background:${APP.txnTab===tb?'#5B2EDE':'transparent'};color:${APP.txnTab===tb?'#fff':'#888'}">${tb==='savings'?'Savings':'Coin & Bar'}</div>`).join('')}
+  </div>
+  <div style="display:flex;gap:6px;padding:10px 12px;overflow-x:auto;scrollbar-width:none">
+    ${['ALL','Buy','Sell','Auto Savings'].map(c=>`<div onclick="APP.txnFilter='${c}';render()" style="padding:6px 13px;border-radius:16px;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer;${APP.txnFilter===c?'background:#5B2EDE;color:#fff':'border:1.5px solid #ddd;color:#555'}">${c}</div>`).join('')}
+  </div>
+  <div style="padding:0 12px">
+    ${list.length===0?`<div style="text-align:center;padding:30px 0;font-size:13px;color:#aaa">No transactions found</div>`:
+    list.map(tx=>`<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f3f3f3">
+      <div style="width:40px;height:40px;border-radius:50%;background:#F0EAFF;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">${tx.icon}</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700;color:#111;display:flex;align-items:center;gap:5px">${tx.name}${tx.smart?'<span style="font-size:9px;background:#EEEDFE;color:#534AB7;padding:2px 5px;border-radius:4px;font-weight:700">SmartSIP</span>':''}</div>
+        <div style="font-size:11px;color:#aaa;margin-top:1px">${tx.date}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:800;color:${tx.red?'#E74C3C':'#1D9E75'}">${tx.amt}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:1px">${tx.gm}</div>
+      </div>
+    </div>`).join('')}
+  </div>
+  <div style="height:20px"></div>`;
+}
+
+// ── PROFILE ───────────────────────────────────────────────────────────────────
+const NOTIFS=[
+  {icon:'💰',title:'Gold price alert',body:'24K Gold dropped 2.1% — good time to buy!',time:'2h ago',unread:true},
+  {icon:'🔔',title:'SmartSIP executed',body:'₹500 invested automatically at ₹9,156/gm',time:'1d ago',unread:true},
+  {icon:'✅',title:'KYC verified',body:'Your identity verification is complete',time:'3d ago',unread:false},
+];
+let notifOpen=false;
+
+function profileHTML(){
+  return `
+  <div style="background:#fff;padding:16px 20px 12px;display:flex;justify-content:space-between;align-items:center">
+    <div style="font-size:19px;font-weight:800;color:#111">My Profile</div>
+    <div onclick="notifOpen=!notifOpen;render()" style="position:relative;cursor:pointer;width:36px;height:36px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <div style="position:absolute;top:6px;right:6px;width:8px;height:8px;background:#E74C3C;border-radius:50%;border:1.5px solid #fff"></div>
+    </div>
+  </div>
+
+  ${notifOpen?`<div class="card" style="margin-top:0;border:1.5px solid #EEEDFE">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:800;color:#111">Notifications</div>
+      <span onclick="notifOpen=false;render()" style="font-size:18px;color:#aaa;cursor:pointer;line-height:1">×</span>
+    </div>
+    ${NOTIFS.map(n=>`<div class="notif-item">
+      <div style="width:8px;height:8px;border-radius:50%;background:${n.unread?'#5B2EDE':'#ddd'};flex-shrink:0;margin-top:4px"></div>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:#111">${n.icon} ${n.title}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px">${n.body}</div>
+        <div style="font-size:10px;color:#bbb;margin-top:2px">${n.time}</div>
+      </div>
+    </div>`).join('')}
+  </div>`:''}
+
+  <div class="card" style="display:flex;flex-direction:column;align-items:center;padding:20px;margin-top:8px">
+    <div style="width:66px;height:66px;border-radius:50%;background:#5B2EDE;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:#fff;margin-bottom:10px">P</div>
+    <div style="font-size:17px;font-weight:800;color:#111">Prasantha</div>
+    <div style="font-size:13px;color:#666;margin-top:2px">+91 8072428719</div>
+    <div style="font-size:12px;color:#5B2EDE;margin-top:4px;font-weight:600">increasing Aura since October 2025</div>
+  </div>
+
+  <div class="card" style="margin-top:8px;padding:0">
+    <div style="font-size:12px;font-weight:700;color:#888;padding:12px 16px 6px;letter-spacing:.4px">ACCOUNT</div>
+    ${[['🪪','Account & KYC'],['🏦','Linked Bank'],['📄','Statements']].map(([ic,lb])=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid #f3f3f3;cursor:pointer" onclick="alert('Opening ${lb}...')">
+      <span style="font-size:18px">${ic}</span>
+      <span style="flex:1;font-size:13px;font-weight:600;color:#111">${lb}</span>
+      <span style="color:#ccc;font-size:16px">›</span>
+    </div>`).join('')}
+    <div style="font-size:12px;font-weight:700;color:#888;padding:12px 16px 6px;letter-spacing:.4px;border-top:1px solid #f3f3f3">SAVINGS</div>
+    <div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid #f3f3f3;cursor:pointer" onclick="setTab('smartsip')">
+      <span style="font-size:18px">✏️</span>
+      <span style="flex:1;font-size:13px;font-weight:600;color:#111">Modify SmartSIP</span>
+      <span style="color:#ccc;font-size:16px">›</span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px;padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="alert('Logged out')">
+      <span style="font-size:18px">🚪</span>
+      <span style="font-size:13px;font-weight:600;color:#E74C3C">Log Out</span>
+    </div>
+  </div>
+  <div style="height:20px"></div>`;
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function setTab(t){APP.tab=t;APP.portfolioFocus=null;notifOpen=false;render();}
+
+function render(){
+  const screens={home:homeHTML,smartsip:smartSipHTML,portfolio:portfolioHTML,transactions:txnHTML,profile:profileHTML};
+  document.getElementById('mainScr').innerHTML=(screens[APP.tab]||homeHTML)();
+  document.getElementById('mainScr').scrollTop=0;
+  renderNav();
+  if(APP.tab==='smartsip')setTimeout(renderSipChart,60);
+  if(APP.tab==='portfolio')setTimeout(renderPieChart,60);
+}
+
+render();
+</script>
